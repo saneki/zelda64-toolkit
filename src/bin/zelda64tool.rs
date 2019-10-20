@@ -1,4 +1,5 @@
 use clap::{App, Arg};
+use n64rom::rom::HEAD_SIZE;
 use std::fs::File;
 use std::path::Path;
 use zelda64::rom::{Error, Rom};
@@ -30,8 +31,12 @@ fn main() -> Result<(), Error> {
             let (rom, _) = load_rom(&path)?;
 
             match &rom.table {
-                Some((_, offset)) => {
-                    println!("Found table!: 0x{:08X}", offset);
+                Some((table, offset)) => {
+                    // Factor in size of N64 rom header
+                    let offset = offset + HEAD_SIZE;
+
+                    println!("Table: 0x{:08X}", offset);
+                    println!("{}", table);
                 },
                 None => println!("No table?")
             }

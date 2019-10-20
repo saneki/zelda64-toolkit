@@ -5,6 +5,7 @@ use std::convert::TryInto;
 use std::fmt;
 use std::io::{self, Cursor, Read, Seek, SeekFrom};
 use std::ops::Range;
+use std::str::{self, Utf8Error};
 
 use crate::util;
 
@@ -71,7 +72,57 @@ pub struct Entry {
     physical_end: u32,
 }
 
+impl fmt::Display for Entry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let virt = self.virt();
+        let (phys, kind) = self.real_phys();
+        match kind {
+            EntryType::Compressed | EntryType::Decompressed => {
+                let phys = phys.unwrap();
+                let indicator = match kind {
+                    EntryType::Compressed => "C",
+                    EntryType::Decompressed => "D",
+                    _ => unreachable!(),
+                };
+                write!(f, "[{}]: Virtual({:08X}, {:08X}) | Physical({:08X}, {:08X})",
+                    indicator, virt.start, virt.end, phys.start, phys.end)?;
+                let diff = self.diff();
+                match diff {
+                    Ok(diff) => {
+                        // If Compressed/Decompressed and not error, should always be a valid int.
+                        let diff = diff.unwrap();
+                        match diff {
+                            0 => Ok(()),
+                            _ => write!(f, " | Diff=0x{}", util::to_signed_hex(diff))
+                        }
+                    }
+                    Err(err) => write!(f, " | {}", err)
+                }
+            }
+            EntryType::DoesNotExist => {
+                write!(f, "[N]: Virtual({:08X}, {:08X}) | Physical([DoesNotExist])",
+                    virt.start, virt.end)
+            }
+            EntryType::Empty => write!(f, "[Empty]"),
+        }
+    }
+}
+
 impl Entry {
+    /// Gets difference between uncompressed and compressed sizes.
+    pub fn diff(&self) -> Result<Option<isize>> {
+        let (virt, phys, _) = self.validate()?;
+        match phys {
+            Some(phys) => {
+                let vlen: isize = virt.len().try_into().unwrap();
+                let plen: isize = phys.len().try_into().unwrap();
+                let diff = Some(vlen - plen);
+                Ok(diff)
+            }
+            _ => Ok(None),
+        }
+    }
+
     /// Get the respective EntryType.
     pub fn kind(&self) -> EntryType {
         let phys = self.phys();
@@ -139,9 +190,9 @@ impl Entry {
     }
 
     /// Validate this table entry.
-    pub fn validate(&self) -> Result<()> {
+    pub fn validate(&self) -> Result<(Range<u32>, Option<Range<u32>>, EntryType)> {
         let virt = self.virt();
-        let (phys, _) = self.real_phys();
+        let (phys, kind) = self.real_phys();
 
         if virt.start > virt.end {
             Err(Error::InvalidRange(Mapping::Virtual, virt))
@@ -151,10 +202,10 @@ impl Entry {
                     if phys.start > phys.end {
                         Err(Error::InvalidRange(Mapping::Physical, phys))
                     } else {
-                        Ok(())
+                        Ok((virt, Some(phys), kind))
                     }
                 }
-                None => Ok(()),
+                None => Ok((virt, None, kind)),
             }
         }
     }
@@ -185,6 +236,12 @@ pub enum Version {
     Unknown(Vec<u8>),
 }
 
+impl fmt::Display for Version {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.get_tag())
+    }
+}
+
 impl Version {
     /// Determine from the version bytes found in a rom file.
     pub fn from(bytes: &[u8]) -> Self {
@@ -192,6 +249,14 @@ impl Version {
             b"zelda@srd022j" => Self::Srd022J,
             b"zelda@srd44" => Self::Srd44,
             _ => Self::Unknown(bytes.to_vec()),
+        }
+    }
+
+    pub fn get_tag(&self) -> &'static str {
+        match self {
+            Self::Srd022J => "srd022j",
+            Self::Srd44 => "srd44",
+            Self::Unknown(_) => "Unknown",
         }
     }
 
@@ -231,7 +296,20 @@ pub struct Header {
     build_date: Vec<u8>,
 }
 
+impl fmt::Display for Header {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let date = self.build_date().unwrap_or("<Utf8Error>");
+        writeln!(f, "Version: {}", &self.version)?;
+        writeln!(f, "Build Date: {}", date)
+    }
+}
+
 impl Header {
+    /// Get the build date as a string.
+    pub fn build_date(&self) -> ::std::result::Result<&str, Utf8Error> {
+        str::from_utf8(&self.build_date)
+    }
+
     /// Parse header from at least 0x30 bytes.
     pub fn parse(bytes: &[u8]) -> Result<Self> {
         let mut cursor = Cursor::new(&bytes);
@@ -259,6 +337,16 @@ impl Header {
 pub struct Table {
     header: Header,
     entries: Vec<Entry>,
+}
+
+impl fmt::Display for Table {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "{}", &self.header)?;
+        for entry in &self.entries {
+            writeln!(f, "{}", entry)?;
+        }
+        Ok(())
+    }
 }
 
 impl Table {
