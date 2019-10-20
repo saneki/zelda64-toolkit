@@ -1,0 +1,20 @@
+[package]
+name = "zelda64"
+version = "0.0.1"
+authors = ["saneki <s@neki.me>"]
+edition = "2018"
+
+[dependencies]
+byteorder = "1.3"
+clap = { version = "2.33.0", optional = true }
+failure = "0.1"
+failure_derive = "0.1"
+n64rom = { git = "https://github.com/saneki/n64rom-rs" }
+
+[features]
+zelda64tool = ["clap"]
+
+[[bin]]
+name = "zelda64tool"
+path = "src/bin/zelda64tool.rs"
+required-features = ["zelda64tool"]
