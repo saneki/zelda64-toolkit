@@ -370,8 +370,6 @@ impl Table {
                         end = Some((entry.virtual_end as usize) - rom::HEAD_SIZE);
                     }
 
-                    entries.push(entry);
-
                     // Check if we reached the end yet
                     match end {
                         Some(end) => {
@@ -381,6 +379,8 @@ impl Table {
                         }
                         _ => (),
                     };
+
+                    entries.push(entry);
 
                     current = current + ENTRY_SIZE;
                 }
