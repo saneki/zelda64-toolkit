@@ -1,7 +1,9 @@
 use clap::{App, Arg};
 use n64rom::rom::HEAD_SIZE;
 use std::fs::File;
+use std::io::Write;
 use std::path::Path;
+use zelda64::decompress::Decompressor;
 use zelda64::rom::{Error, Rom};
 
 fn load_rom(path: &str) -> Result<(Rom, File), Error> {
@@ -17,6 +19,17 @@ fn main() -> Result<(), Error> {
         .version("0.0.1")
         .about("Displays information about Zelda64 ROM files")
         .subcommand(
+            App::new("decompress")
+                .visible_alias("d")
+                .about("Decompress a Zelda64 rom file")
+                .arg(Arg::with_name("input")
+                    .required(true)
+                    .help("Input rom file"))
+                .arg(Arg::with_name("output")
+                    .required(true)
+                    .help("Output rom file"))
+        )
+        .subcommand(
             App::new("show")
                 .about("Show details about a rom file")
                 .arg(Arg::with_name("file")
@@ -26,6 +39,19 @@ fn main() -> Result<(), Error> {
         .get_matches();
 
     match matches.subcommand() {
+        ("decompress", Some(matches)) => {
+            let in_path = matches.value_of("input").unwrap();
+            let (rom, _) = load_rom(&in_path)?;
+
+            let mut decompressor = Decompressor::from(&rom);
+            let mut dec_rom = decompressor.decompress()?;
+
+            let out_path = matches.value_of("output").unwrap();
+            let mut out_file = File::create(out_path)?;
+            let written = dec_rom.write_with_update(&mut out_file)?;
+            out_file.flush()?;
+            println!("Wrote {:08X} bytes!", written);
+        }
         ("show", Some(matches)) => {
             let path = matches.value_of("file").unwrap();
             let (rom, _) = load_rom(&path)?;

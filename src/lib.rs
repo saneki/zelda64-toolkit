@@ -2,6 +2,7 @@
 #![feature(seek_convenience)]
 #![warn(rust_2018_idioms)]
 
+pub mod decompress;
 pub mod dma;
 pub mod rom;
 mod util;

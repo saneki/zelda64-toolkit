@@ -1,9 +1,10 @@
-use byteorder::{BigEndian, ReadBytesExt};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use failure::Fail;
 use n64rom::rom;
 use std::convert::TryInto;
+use std::default::Default;
 use std::fmt;
-use std::io::{self, Cursor, Read, Seek, SeekFrom};
+use std::io::{self, Cursor, Read, Seek, SeekFrom, Write};
 use std::ops::Range;
 use std::str::{self, Utf8Error};
 
@@ -18,8 +19,20 @@ const HEADER_SIZE: usize = 0x30;
 /// Table structure alignment.
 const TABLE_ALIGN: usize = 0x10;
 
-/// Table header magic string.
-static TABLE_MAGIC: &'static [u8] = b"zelda@srd";
+/// Table header magic string start.
+const TABLE_MAGIC: &'static str = "zelda@srd";
+
+/// Table version tag for SRD022J.
+const TAG_SRD022J: &'static str = "022j";
+
+/// Full table version string for SRD022J.
+const VERSION_SRD022J: &'static str = "zelda@srd022j";
+
+/// Table version tag for SRD44.
+const TAG_SRD44: &'static str = "44";
+
+/// Full table version string for SRD44.
+const VERSION_SRD44: &'static str = "zelda@srd44";
 
 #[derive(Debug, Fail)]
 pub enum Error {
@@ -64,7 +77,7 @@ impl fmt::Display for Mapping {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Entry {
     virtual_start: u32,
     virtual_end: u32,
@@ -123,11 +136,28 @@ impl Entry {
         }
     }
 
+    pub fn from(virt_start: u32, virt_end: u32, phys_start: u32, phys_end: u32) -> Self {
+        Self {
+            virtual_start: virt_start,
+            virtual_end: virt_end,
+            physical_start: phys_start,
+            physical_end: phys_end,
+        }
+    }
+
+    pub fn from_decompressed(virt: Range<u32>, phys_start: u32) -> Self {
+        Self::from(virt.start, virt.end, phys_start, 0)
+    }
+
+    pub fn from_range(virt: Range<u32>, phys: Range<u32>) -> Self {
+        Self::from(virt.start, virt.end, phys.start, phys.end)
+    }
+
     /// Get the respective EntryType.
     pub fn kind(&self) -> EntryType {
         let phys = self.phys();
 
-        if self.to_vec().iter().all(|&x| x == 0) {
+        if self.items().iter().all(|&x| x == 0) {
             EntryType::Empty
         } else if phys.start == ::std::u32::MAX && phys.end == ::std::u32::MAX {
             EntryType::DoesNotExist
@@ -180,7 +210,8 @@ impl Entry {
         }
     }
 
-    pub fn to_vec(&self) -> Vec<u32> {
+    /// Get as a Vec of u32.
+    pub fn items(&self) -> Vec<u32> {
         vec![
             self.virtual_start,
             self.virtual_end,
@@ -209,6 +240,22 @@ impl Entry {
             }
         }
     }
+
+    /// Get as a Vec of u8.
+    pub fn to_vec(&self) -> Vec<u8> {
+        let mut buffer = Vec::with_capacity(ENTRY_SIZE);
+        let items = self.items();
+        for item in &items {
+            buffer.write_u32::<BigEndian>(*item).unwrap()
+        }
+        buffer
+    }
+
+    /// Write.
+    pub fn write<T: Write>(&self, writer: &mut T) -> io::Result<usize> {
+        let bytes = self.to_vec();
+        writer.write(&bytes)
+    }
 }
 
 pub enum EntryType {
@@ -225,7 +272,7 @@ pub enum EntryType {
     Empty,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Version {
     /// Found in:
     ///   Legend of Zelda, The - Ocarina of Time - Master Quest (U)
@@ -252,10 +299,18 @@ impl Version {
         }
     }
 
+    pub fn get_string(&self) -> Result<&'static str> {
+        match self {
+            Self::Srd022J => Ok(VERSION_SRD022J),
+            Self::Srd44 => Ok(VERSION_SRD44),
+            Self::Unknown(_) => Err(Error::InvalidHeader),
+        }
+    }
+
     pub fn get_tag(&self) -> &'static str {
         match self {
-            Self::Srd022J => "srd022j",
-            Self::Srd44 => "srd44",
+            Self::Srd022J => TAG_SRD022J,
+            Self::Srd44 => TAG_SRD44,
             Self::Unknown(_) => "Unknown",
         }
     }
@@ -288,8 +343,37 @@ impl Version {
 
         Ok(result)
     }
+
+    pub fn to_vec(&self) -> Result<Vec<u8>> {
+        match self {
+            Version::Srd022J => {
+                let mut vec = Vec::new();
+                let string = self.get_string().unwrap();
+                vec.extend_from_slice(string.as_bytes());
+                // Fill remaining with 0x00
+                vec.resize_with(0x10, || 0);
+                Ok(vec)
+            }
+            Version::Srd44 => {
+                let mut vec = Vec::new();
+                let string = self.get_string().unwrap();
+                vec.extend_from_slice(string.as_bytes());
+                // Add null-terminator
+                vec.push(0);
+                Ok(vec)
+            }
+            Version::Unknown(_) => Err(Error::InvalidHeader),
+        }
+    }
+
+    pub fn write<T: Write>(&self, writer: &mut T) -> Result<usize> {
+        let vec = self.to_vec()?;
+        let written = writer.write(&vec)?;
+        Ok(written)
+    }
 }
 
+#[derive(Clone)]
 /// Table header.
 pub struct Header {
     version: Version,
@@ -332,11 +416,28 @@ impl Header {
             Err(Error::InvalidHeader)
         }
     }
+
+    pub fn to_vec(&self) -> Result<Vec<u8>> {
+        let mut vec = Vec::new();
+        let version_vec = self.version.to_vec()?;
+        // Write Version bytes and build date
+        vec.extend_from_slice(&version_vec);
+        vec.extend_from_slice(&self.build_date);
+        // Fill remaining space
+        vec.resize_with(HEADER_SIZE, Default::default);
+        Ok(vec)
+    }
+
+    pub fn write<T: Write>(&self, writer: &mut T) -> Result<usize> {
+        let vec = self.to_vec()?;
+        let written = writer.write(&vec)?;
+        Ok(written)
+    }
 }
 
 pub struct Table {
-    header: Header,
-    entries: Vec<Entry>,
+    pub header: Header,
+    pub entries: Vec<Entry>,
 }
 
 impl fmt::Display for Table {
@@ -350,6 +451,13 @@ impl fmt::Display for Table {
 }
 
 impl Table {
+    pub fn from(header: Header, entries: Vec<Entry>) -> Self {
+        Self {
+            header,
+            entries,
+        }
+    }
+
     pub fn find<T: Read + Seek>(mut stream: &mut T) -> Result<Option<(Table, usize)>> {
         let results = Self::find_header(&mut stream)?;
         match results {
@@ -427,7 +535,7 @@ impl Table {
             let amount = stream.read(&mut magic)?;
 
             if amount == 9 {
-                if magic == TABLE_MAGIC {
+                if magic == TABLE_MAGIC.as_bytes() {
                     return Ok(Some(offset.try_into().unwrap()));
                 }
             } else {
@@ -437,5 +545,15 @@ impl Table {
 
             offset = offset + align;
         }
+    }
+
+    pub fn write<T: Write>(&self, mut writer: &mut T) -> Result<usize> {
+        // Write header
+        let mut length = self.header.write(&mut writer)?;
+        // Write each entry
+        for entry in &self.entries {
+            length = length + entry.write(&mut writer)?;
+        }
+        Ok(length)
     }
 }
