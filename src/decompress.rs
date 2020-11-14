@@ -23,7 +23,7 @@ impl<'d> Decompressor<'d> {
 
     pub fn decompress(&mut self) -> Result<Rom, Error> {
         let n64rom = &self.rom.rom;
-        let data = &n64rom.data;
+        let data = n64rom.data();
         let mut cursor = Cursor::new(data);
 
         let head_size: u32 = HEAD_SIZE.try_into().unwrap();
@@ -34,6 +34,8 @@ impl<'d> Decompressor<'d> {
         let mut entries: Vec<Entry> = Vec::new();
         // Output vector.
         let mut result = Vec::new();
+        // Fill start of result buffer so that head can be written later.
+        result.resize(HEAD_SIZE, 0);
 
         let (table, offset) = self.rom.table.as_ref().unwrap();
         for entry in &table.entries {
@@ -96,7 +98,7 @@ impl<'d> Decompressor<'d> {
             }
         }
 
-        result.resize(ROM_CAPACITY - HEAD_SIZE, 0);
+        result.resize(ROM_CAPACITY, 0);
 
         let new_table = Table::from(table.header.clone(), entries);
         let new_n64rom = N64Rom::from(n64rom.header, n64rom.ipl3, result, n64rom.order().clone());

@@ -54,7 +54,7 @@ impl Rom {
     }
 
     pub fn patch(&mut self, offset: u64, bytes: &[u8]) -> io::Result<usize> {
-        let mut cursor = Cursor::new(&mut self.rom.data);
+        let mut cursor = Cursor::new(self.rom.data_mut());
         cursor.seek(SeekFrom::Start(offset))?;
         cursor.write(bytes)
     }
@@ -63,7 +63,7 @@ impl Rom {
         let n64rom = N64Rom::read(&mut reader)?;
 
         // Wrap data in cursor and search for Table structure
-        let mut cursor = Cursor::new(&n64rom.data);
+        let mut cursor = Cursor::new(n64rom.data());
         let result = Table::find(&mut cursor)?;
         let rom = match result {
             Some((table, offset)) => {
