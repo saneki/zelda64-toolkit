@@ -44,7 +44,7 @@ pub enum Error {
 
     // #[fail(display = "{} start (0x{:08X}) cannot be greater than end (0x{:08X})", _0, _1.start, _1.end)]
     #[fail(display = "Invalid mapping range")]
-    InvalidRange(Mapping, (Range<u32>)),
+    InvalidRange(Mapping, Range<u32>),
 
     #[fail(display = "Unknown table version")]
     UnknownVersion(Version),
@@ -186,12 +186,12 @@ impl Entry {
 
     /// Get physical start and end addresses.
     pub fn phys(&self) -> Range<u32> {
-        (self.physical_start..self.physical_end)
+        self.physical_start..self.physical_end
     }
 
     /// Get virtual start and end addresses.
     pub fn virt(&self) -> Range<u32> {
-        (self.virtual_start..self.virtual_end)
+        self.virtual_start..self.virtual_end
     }
 
     /// Get the "real" physical address range.
