@@ -1,4 +1,3 @@
-use n64rom::header::HeaderError;
 use n64rom::rom::Rom as N64Rom;
 use std::convert::TryInto;
 use std::io::{self, Cursor, Read, Seek, SeekFrom, Write};
@@ -11,7 +10,7 @@ pub enum Error {
     #[error("{0}")]
     DMAError(#[from] dma::Error),
     #[error("{0}")]
-    HeaderError(#[from] HeaderError),
+    HeaderError(#[from] n64rom::header::Error),
     #[error("{0}")]
     IOError(#[from] io::Error),
 }
