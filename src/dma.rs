@@ -1,5 +1,4 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use failure::Fail;
 use n64rom::rom;
 use std::convert::TryInto;
 use std::default::Default;
@@ -7,6 +6,7 @@ use std::fmt;
 use std::io::{self, Cursor, Read, Seek, SeekFrom, Write};
 use std::ops::Range;
 use std::str::{self, Utf8Error};
+use thiserror::Error;
 
 use crate::util;
 
@@ -34,26 +34,16 @@ const TAG_SRD44: &'static str = "44";
 /// Full table version string for SRD44.
 const VERSION_SRD44: &'static str = "zelda@srd44";
 
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum Error {
-    #[fail(display = "{}", _0)]
-    IOError(#[cause] io::Error),
-
-    #[fail(display = "Invalid header magic")]
+    #[error("{0}")]
+    IOError(#[from] io::Error),
+    #[error("Invalid header magic")]
     InvalidHeader,
-
-    // #[fail(display = "{} start (0x{:08X}) cannot be greater than end (0x{:08X})", _0, _1.start, _1.end)]
-    #[fail(display = "Invalid mapping range")]
+    #[error("Invalid mapping range")]
     InvalidRange(Mapping, Range<u32>),
-
-    #[fail(display = "Unknown table version")]
+    #[error("Unknown table version")]
     UnknownVersion(Version),
-}
-
-impl From<io::Error> for Error {
-    fn from(e: io::Error) -> Self {
-        Error::IOError(e)
-    }
 }
 
 /// Custom Result type.

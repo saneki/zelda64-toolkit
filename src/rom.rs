@@ -1,39 +1,19 @@
-use failure::Fail;
 use n64rom::header::HeaderError;
 use n64rom::rom::Rom as N64Rom;
 use std::convert::TryInto;
 use std::io::{self, Cursor, Read, Seek, SeekFrom, Write};
+use thiserror::Error;
 
 use crate::dma::{self, Table};
 
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum Error {
-    #[fail(display = "{}", _0)]
-    DMAError(#[cause] dma::Error),
-
-    #[fail(display = "{}", _0)]
-    HeaderError(#[cause] HeaderError),
-
-    #[fail(display = "{}", _0)]
-    IOError(#[cause] io::Error),
-}
-
-impl From<dma::Error> for Error {
-    fn from(e: dma::Error) -> Self {
-        Error::DMAError(e)
-    }
-}
-
-impl From<HeaderError> for Error {
-    fn from(e: HeaderError) -> Self {
-        Error::HeaderError(e)
-    }
-}
-
-impl From<io::Error> for Error {
-    fn from(e: io::Error) -> Self {
-        Error::IOError(e)
-    }
+    #[error("{0}")]
+    DMAError(#[from] dma::Error),
+    #[error("{0}")]
+    HeaderError(#[from] HeaderError),
+    #[error("{0}")]
+    IOError(#[from] io::Error),
 }
 
 type Result<T> = ::std::result::Result<T, Error>;
