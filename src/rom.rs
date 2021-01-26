@@ -42,7 +42,7 @@ impl Rom {
         let n64rom = N64Rom::read(&mut reader)?;
 
         // Wrap data in cursor and search for Table structure
-        let mut cursor = Cursor::new(n64rom.data());
+        let mut cursor = Cursor::new(n64rom.full());
         let result = Table::find(&mut cursor)?;
         let rom = match result {
             Some((table, offset)) => {
