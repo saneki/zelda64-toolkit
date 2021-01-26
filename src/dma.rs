@@ -69,16 +69,13 @@ impl fmt::Display for Mapping {
 
 #[derive(Clone, Debug)]
 pub struct Entry {
-    virtual_start: u32,
-    virtual_end: u32,
-    physical_start: u32,
-    physical_end: u32,
+    values: [u32; 4],
 }
 
 impl fmt::Display for Entry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let virt = self.virt();
-        let (phys, kind) = self.real_phys();
+        let (phys, kind) = self.range();
         match kind {
             EntryType::Compressed | EntryType::Decompressed => {
                 let phys = phys.unwrap();
@@ -111,7 +108,41 @@ impl fmt::Display for Entry {
     }
 }
 
+impl AsRef<[u32; 4]> for Entry {
+    fn as_ref(&self) -> &[u32; 4] {
+        &self.values
+    }
+}
+
+impl AsMut<[u32; 4]> for Entry {
+    fn as_mut(&mut self) -> &mut [u32; 4] {
+        &mut self.values
+    }
+}
+
 impl Entry {
+    const SIZE: usize = 0x10;
+
+    /// Virtual start address.
+    pub fn virt_start(&self) -> u32 {
+        self.values[0]
+    }
+
+    /// Virtual end address.
+    pub fn virt_end(&self) -> u32 {
+        self.values[1]
+    }
+
+    /// Physical start address.
+    pub fn phys_start(&self) -> u32 {
+        self.values[2]
+    }
+
+    /// Physical end address.
+    pub fn phys_end(&self) -> u32 {
+        self.values[3]
+    }
+
     /// Gets difference between uncompressed and compressed sizes.
     pub fn diff(&self) -> Result<Option<isize>> {
         let (virt, phys, _) = self.validate()?;
@@ -128,10 +159,7 @@ impl Entry {
 
     pub fn from(virt_start: u32, virt_end: u32, phys_start: u32, phys_end: u32) -> Self {
         Self {
-            virtual_start: virt_start,
-            virtual_end: virt_end,
-            physical_start: phys_start,
-            physical_end: phys_end,
+            values: [virt_start, virt_end, phys_start, phys_end],
         }
     }
 
@@ -146,8 +174,7 @@ impl Entry {
     /// Get the respective EntryType.
     pub fn kind(&self) -> EntryType {
         let phys = self.phys();
-
-        if self.items().iter().all(|&x| x == 0) {
+        if self.as_ref().into_iter().all(|&x| x == 0) {
             EntryType::Empty
         } else if phys.start == ::std::u32::MAX && phys.end == ::std::u32::MAX {
             EntryType::DoesNotExist
@@ -159,61 +186,43 @@ impl Entry {
     }
 
     pub fn read<T: Read>(reader: &mut T) -> io::Result<Self> {
-        let virtual_start = reader.read_u32::<BigEndian>()?;
-        let virtual_end = reader.read_u32::<BigEndian>()?;
-        let physical_start = reader.read_u32::<BigEndian>()?;
-        let physical_end = reader.read_u32::<BigEndian>()?;
-
-        let entry = Self {
-            virtual_start,
-            virtual_end,
-            physical_start,
-            physical_end,
-        };
-
+        let virt_start = reader.read_u32::<BigEndian>()?;
+        let virt_end = reader.read_u32::<BigEndian>()?;
+        let phys_start = reader.read_u32::<BigEndian>()?;
+        let phys_end = reader.read_u32::<BigEndian>()?;
+        let entry = Self::from(virt_start, virt_end, phys_start, phys_end);
         Ok(entry)
     }
 
-    /// Get physical start and end addresses.
+    /// Get physical start and end addresses as a `Range`.
     pub fn phys(&self) -> Range<u32> {
-        self.physical_start..self.physical_end
+        self.phys_start()..self.phys_end()
     }
 
-    /// Get virtual start and end addresses.
+    /// Get virtual start and end addresses as a `Range`.
     pub fn virt(&self) -> Range<u32> {
-        self.virtual_start..self.virtual_end
+        self.virt_start()..self.virt_end()
     }
 
-    /// Get the "real" physical address range.
-    pub fn real_phys(&self) -> (Option<Range<u32>>, EntryType) {
+    /// Get the "real" address `Range` of file data relative to ROM start.
+    pub fn range(&self) -> (Option<Range<u32>>, EntryType) {
         let kind = self.kind();
         match kind {
             EntryType::Compressed => (Some(self.phys()), kind),
             EntryType::Decompressed => {
-                // If decompressed, physical mapping end will be 0
-                // Thus use virtual mapping range length
+                // If decompressed, physical mapping end will be 0, thus use virtual mapping range length.
                 let length = self.virt().len() as u32;
-                let range = self.physical_start..self.physical_start + length;
+                let range = self.phys_start()..self.phys_start() + length;
                 (Some(range), kind)
             }
             _ => (None, kind),
         }
     }
 
-    /// Get as a Vec of u32.
-    pub fn items(&self) -> Vec<u32> {
-        vec![
-            self.virtual_start,
-            self.virtual_end,
-            self.physical_start,
-            self.physical_end
-        ]
-    }
-
     /// Validate this table entry.
     pub fn validate(&self) -> Result<(Range<u32>, Option<Range<u32>>, EntryType)> {
         let virt = self.virt();
-        let (phys, kind) = self.real_phys();
+        let (phys, kind) = self.range();
 
         if virt.start > virt.end {
             Err(Error::InvalidRange(Mapping::Virtual, virt))
@@ -231,20 +240,13 @@ impl Entry {
         }
     }
 
-    /// Get as a Vec of u8.
-    pub fn to_vec(&self) -> Vec<u8> {
-        let mut buffer = Vec::with_capacity(ENTRY_SIZE);
-        let items = self.items();
-        for item in &items {
-            buffer.write_u32::<BigEndian>(*item).unwrap()
-        }
-        buffer
-    }
-
     /// Write.
     pub fn write<T: Write>(&self, writer: &mut T) -> io::Result<usize> {
-        let bytes = self.to_vec();
-        writer.write(&bytes)
+        writer.write_u32::<BigEndian>(self.virt_start())?;
+        writer.write_u32::<BigEndian>(self.virt_end())?;
+        writer.write_u32::<BigEndian>(self.phys_start())?;
+        writer.write_u32::<BigEndian>(self.phys_end())?;
+        Ok(Self::SIZE)
     }
 }
 
@@ -464,8 +466,8 @@ impl Table {
                     let entry = Entry::read(&mut stream)?;
 
                     // This table should include an entry about itself. It should be uncompressed.
-                    if entry.virtual_start == begin {
-                        end = Some((entry.virtual_end as usize) - rom::HEAD_SIZE);
+                    if entry.virt_start() == begin {
+                        end = Some((entry.virt_end() as usize) - rom::HEAD_SIZE);
                     }
 
                     // Check if we reached the end yet
