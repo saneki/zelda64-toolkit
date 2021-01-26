@@ -1,35 +1,11 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use n64rom::rom;
 use std::convert::TryInto;
-use std::default::Default;
 use std::fmt;
-use std::io::{self, Cursor, Read, Seek, SeekFrom, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::ops::Range;
-use std::str::{self, Utf8Error};
 use thiserror::Error;
 
 use crate::util;
-
-/// Table header size.
-const HEADER_SIZE: usize = 0x30;
-
-/// Table structure alignment.
-const TABLE_ALIGN: usize = 0x10;
-
-/// Table header magic string start.
-const TABLE_MAGIC: &'static str = "zelda@srd";
-
-/// Table version tag for SRD022J.
-const TAG_SRD022J: &'static str = "022j";
-
-/// Full table version string for SRD022J.
-const VERSION_SRD022J: &'static str = "zelda@srd022j";
-
-/// Table version tag for SRD44.
-const TAG_SRD44: &'static str = "44";
-
-/// Full table version string for SRD44.
-const VERSION_SRD44: &'static str = "zelda@srd44";
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -39,8 +15,6 @@ pub enum Error {
     InvalidHeader,
     #[error("Invalid mapping range")]
     InvalidRange(Mapping, Range<u32>),
-    #[error("Unknown table version")]
-    UnknownVersion(Version),
 }
 
 /// Custom Result type.
@@ -264,169 +238,6 @@ pub enum EntryType {
 
     /// Entry file is empty (all fields are 0).
     Empty,
-}
-
-#[derive(Clone, Debug)]
-pub enum Version {
-    /// Found in:
-    ///   Legend of Zelda, The - Ocarina of Time - Master Quest (U)
-    Srd022J,
-    /// Found in most other roms.
-    Srd44,
-    /// Unknown version identifier.
-    Unknown(Vec<u8>),
-}
-
-impl fmt::Display for Version {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.get_tag())
-    }
-}
-
-impl Version {
-    /// Determine from the version bytes found in a rom file.
-    pub fn from(bytes: &[u8]) -> Self {
-        match bytes {
-            b"zelda@srd022j" => Self::Srd022J,
-            b"zelda@srd44" => Self::Srd44,
-            _ => Self::Unknown(bytes.to_vec()),
-        }
-    }
-
-    pub fn get_string(&self) -> Result<&'static str> {
-        match self {
-            Self::Srd022J => Ok(VERSION_SRD022J),
-            Self::Srd44 => Ok(VERSION_SRD44),
-            Self::Unknown(_) => Err(Error::InvalidHeader),
-        }
-    }
-
-    pub fn get_tag(&self) -> &'static str {
-        match self {
-            Self::Srd022J => TAG_SRD022J,
-            Self::Srd44 => TAG_SRD44,
-            Self::Unknown(_) => "Unknown",
-        }
-    }
-
-    /// Read the build date. Assumes the reader is immediately after the first null byte following
-    /// the table magic string (such as "zelda@srd44").
-    crate fn read_build_date<T: Read + Seek>(&self, mut stream: &mut T) -> Result<Vec<u8>> {
-        let align: u64 = TABLE_ALIGN.try_into().unwrap();
-
-        let result = match self {
-            // For Srd022J, the build string will be aligned
-            // Size of field: 0x20
-            Version::Srd022J => {
-                util::align_forward(&mut stream, align)?;
-                let mut build_date = [0; 0x20];
-                stream.read_exact(&mut build_date)?;
-                build_date.to_vec().into_iter().take_while(|&x| x != 0).collect()
-            }
-            // For Srd44, the build string is immediately after.
-            // Size of field: align(current) + 0x20
-            Version::Srd44 => {
-                let extra = util::get_align(&mut stream, align)?;
-                let extra: usize = extra.try_into().unwrap();
-                let mut build_date = vec![0; 0x20 + extra];
-                stream.read_exact(&mut build_date)?;
-                build_date.to_vec().into_iter().take_while(|&x| x != 0).collect()
-            }
-            _ => Vec::new()
-        };
-
-        Ok(result)
-    }
-
-    pub fn to_vec(&self) -> Result<Vec<u8>> {
-        match self {
-            Version::Srd022J => {
-                let mut vec = Vec::new();
-                let string = self.get_string().unwrap();
-                vec.extend_from_slice(string.as_bytes());
-                // Fill remaining with 0x00
-                vec.resize_with(0x10, || 0);
-                Ok(vec)
-            }
-            Version::Srd44 => {
-                let mut vec = Vec::new();
-                let string = self.get_string().unwrap();
-                vec.extend_from_slice(string.as_bytes());
-                // Add null-terminator
-                vec.push(0);
-                Ok(vec)
-            }
-            Version::Unknown(_) => Err(Error::InvalidHeader),
-        }
-    }
-
-    pub fn write<T: Write>(&self, writer: &mut T) -> Result<usize> {
-        let vec = self.to_vec()?;
-        let written = writer.write(&vec)?;
-        Ok(written)
-    }
-}
-
-#[derive(Clone)]
-/// Table header.
-pub struct Header {
-    version: Version,
-    build_date: Vec<u8>,
-}
-
-impl fmt::Display for Header {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let date = self.build_date().unwrap_or("<Utf8Error>");
-        writeln!(f, "Version: {}", &self.version)?;
-        writeln!(f, "Build Date: {}", date)
-    }
-}
-
-impl Header {
-    /// Get the build date as a string.
-    pub fn build_date(&self) -> ::std::result::Result<&str, Utf8Error> {
-        str::from_utf8(&self.build_date)
-    }
-
-    /// Parse header from at least 0x30 bytes.
-    pub fn parse(bytes: &[u8]) -> Result<Self> {
-        let mut cursor = Cursor::new(&bytes);
-        let (result, magic) = util::read_until(&mut cursor, 0, TABLE_ALIGN)?;
-        if result {
-            let version = Version::from(&magic);
-            match version {
-                Version::Unknown(_) => Err(Error::UnknownVersion(version)),
-                _ => {
-                    let raw_date = version.read_build_date(&mut cursor)?;
-                    let build_date = raw_date.into_iter().take_while(|&x| x != 0).collect();
-                    let header = Self {
-                        version,
-                        build_date,
-                    };
-                    Ok(header)
-                }
-            }
-        } else {
-            Err(Error::InvalidHeader)
-        }
-    }
-
-    pub fn to_vec(&self) -> Result<Vec<u8>> {
-        let mut vec = Vec::new();
-        let version_vec = self.version.to_vec()?;
-        // Write Version bytes and build date
-        vec.extend_from_slice(&version_vec);
-        vec.extend_from_slice(&self.build_date);
-        // Fill remaining space
-        vec.resize_with(HEADER_SIZE, Default::default);
-        Ok(vec)
-    }
-
-    pub fn write<T: Write>(&self, writer: &mut T) -> Result<usize> {
-        let vec = self.to_vec()?;
-        let written = writer.write(&vec)?;
-        Ok(written)
-    }
 }
 
 pub struct Table {
