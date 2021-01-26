@@ -10,9 +10,6 @@ use thiserror::Error;
 
 use crate::util;
 
-/// Table entry size.
-const ENTRY_SIZE: usize = 0x10;
-
 /// Table header size.
 const HEADER_SIZE: usize = 0x30;
 
@@ -67,7 +64,7 @@ impl fmt::Display for Mapping {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Entry {
     values: [u32; 4],
 }
@@ -169,6 +166,11 @@ impl Entry {
 
     pub fn from_range(virt: Range<u32>, phys: Range<u32>) -> Self {
         Self::from(virt.start, virt.end, phys.start, phys.end)
+    }
+
+    /// Create expected initial `Entry`.
+    pub fn initial() -> Self {
+        Self::from(0, 0x1060, 0, 0)
     }
 
     /// Get the respective EntryType.
@@ -428,13 +430,12 @@ impl Header {
 }
 
 pub struct Table {
-    pub header: Header,
+    /// `dmadata` entries.
     pub entries: Vec<Entry>,
 }
 
 impl fmt::Display for Table {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "{}", &self.header)?;
         for entry in &self.entries {
             writeln!(f, "{}", entry)?;
         }
@@ -443,106 +444,80 @@ impl fmt::Display for Table {
 }
 
 impl Table {
-    pub fn from(header: Header, entries: Vec<Entry>) -> Self {
+    pub fn from(entries: Vec<Entry>) -> Self {
         Self {
-            header,
             entries,
         }
     }
 
+    /// Find `Table` in ROM and return along with offset.
     pub fn find<T: Read + Seek>(mut stream: &mut T) -> Result<Option<(Table, usize)>> {
-        let results = Self::find_header(&mut stream)?;
-        match results {
-            Some((header, offset)) => {
-                let mut entries = Vec::new();
-                let mut current = offset + HEADER_SIZE;
-
-                // We are working in a separate buffer from the rom header/ipl3.
-                // The offsets we are reading, however, assume their presence.
-                let begin: u32 = (rom::HEAD_SIZE + current).try_into().unwrap();
-                let mut end = None;
-
-                loop {
-                    let entry = Entry::read(&mut stream)?;
-
-                    // This table should include an entry about itself. It should be uncompressed.
-                    if entry.virt_start() == begin {
-                        end = Some((entry.virt_end() as usize) - rom::HEAD_SIZE);
-                    }
-
-                    // Check if we reached the end yet
-                    match end {
-                        Some(end) => {
-                            if current >= end {
-                                break;
-                            }
-                        }
-                        _ => (),
-                    };
-
-                    entries.push(entry);
-
-                    current = current + ENTRY_SIZE;
-                }
-
-                let table = Table {
-                    header,
-                    entries,
-                };
-
-                let result = Some((table, offset));
-                Ok(result)
-            }
-            None => Ok(None),
-        }
-    }
-
-    pub fn find_header<T: Read + Seek>(mut stream: &mut T) -> Result<Option<(Header, usize)>> {
-        let offset = Self::find_offset(&mut stream)?;
+        let offset = Self::find_offset(stream)?;
         match offset {
             Some(offset) => {
-                // Seek to offset
-                stream.seek(SeekFrom::Start(offset as u64))?;
-
-                // Read header into bytes
-                let mut bytes = [0; HEADER_SIZE];
-                stream.read_exact(&mut bytes)?;
-                let header = Header::parse(&bytes)?;
-                let result = Some((header, offset));
-                Ok(result)
+                stream.seek(SeekFrom::Start(offset))?;
+                let table = Self::read(&mut stream)?;
+                let origin: usize = (offset as usize).try_into().unwrap();
+                Ok(Some((table, origin)))
             }
             None => Ok(None),
         }
     }
 
-    /// Find the offset of the DMA table.
-    pub fn find_offset<T: Read + Seek>(stream: &mut T) -> Result<Option<usize>> {
-        let align: u64 = TABLE_ALIGN.try_into().unwrap();
-        let mut offset: u64 = 0;
-
+    /// Read `Table` from reader at given offset. Assumes the reader is already positioned at this offset.
+    pub fn read_at<T: Read>(mut reader: &mut T, begin: u32) -> Result<Table> {
+        let mut current: usize = (begin as usize).try_into().unwrap();
+        let mut entries = Vec::new();
+        let mut end = None;
         loop {
-            stream.seek(SeekFrom::Start(offset))?;
+            let entry = Entry::read(&mut reader)?;
 
-            let mut magic = [0; 9];
-            let amount = stream.read(&mut magic)?;
-
-            if amount == 9 {
-                if magic == TABLE_MAGIC.as_bytes() {
-                    return Ok(Some(offset.try_into().unwrap()));
-                }
-            } else {
-                // Unable to read further, assume no table found
-                return Ok(None);
+            // Table should include an entry about itself, it should be uncompressed.
+            if end == None && entry.virt_start() == begin {
+                end = Some(entry.virt_end() as usize);
             }
 
-            offset = offset + align;
+            // Check if the end has been reached.
+            match end {
+                Some(end) => {
+                    if current >= end {
+                        break;
+                    }
+                }
+                _ => (),
+            }
+
+            entries.push(entry);
+            current += Entry::SIZE;
+        }
+        let table = Table::from(entries);
+        Ok(table)
+    }
+
+    /// Read `Table` from stream.
+    pub fn read<T: Read + Seek>(mut stream: &mut T) -> Result<Table> {
+        let offset = stream.seek(SeekFrom::Current(0))?;
+        let begin = (offset as u32).try_into().unwrap();
+        Self::read_at(&mut stream, begin)
+    }
+
+    /// Find the offset of the DMA table, relative to start of stream.
+    pub fn find_offset<T: Read + Seek>(stream: &mut T) -> Result<Option<u64>> {
+        let initial = Entry::initial();
+        stream.seek(SeekFrom::Start(0))?;
+        loop {
+            let entry = Entry::read(stream)?;
+            if entry == initial {
+                let delta: u64 = (Entry::SIZE as u64).try_into().unwrap();
+                let result = stream.seek(SeekFrom::Current(0))? - delta;
+                return Ok(Some(result))
+            }
         }
     }
 
+    /// Write `Table` entries to writer.
     pub fn write<T: Write>(&self, mut writer: &mut T) -> Result<usize> {
-        // Write header
-        let mut length = self.header.write(&mut writer)?;
-        // Write each entry
+        let mut length = 0;
         for entry in &self.entries {
             length = length + entry.write(&mut writer)?;
         }

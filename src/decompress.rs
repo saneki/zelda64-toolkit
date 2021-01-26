@@ -100,7 +100,7 @@ impl<'d> Decompressor<'d> {
 
         result.resize(ROM_CAPACITY, 0);
 
-        let new_table = Table::from(table.header.clone(), entries);
+        let new_table = Table::from(entries);
         let new_n64rom = N64Rom::from(n64rom.header, n64rom.ipl3, result, n64rom.order().clone());
         let new_rom = Rom::from(new_n64rom, Some((new_table, *offset)));
 
