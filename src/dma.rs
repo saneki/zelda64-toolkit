@@ -227,16 +227,13 @@ impl Entry {
 }
 
 pub enum EntryType {
-    /// Entry file is compressed.
+    /// Entry file is Yaz0 compressed.
     Compressed,
-
-    /// Entry file is decompressed.
+    /// Entry file is not Yaz0 compressed.
     Decompressed,
-
-    /// Entry file does not exist (physical addresses are both 0xFFFFFFFF).
+    /// Entry file does not exist (physical addresses are both `0xFFFFFFFF`).
     DoesNotExist,
-
-    /// Entry file is empty (all fields are 0).
+    /// Entry file is empty (all fields are `0`).
     Empty,
 }
 
