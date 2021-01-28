@@ -134,8 +134,9 @@ impl Entry {
         }
     }
 
-    pub fn from_decompressed(virt: Range<u32>, phys_start: u32) -> Self {
-        Self::from(virt.start, virt.end, phys_start, 0)
+    /// Create `Entry` for uncompressed data.
+    pub fn from_uncompressed(virt_start: u32, virt_end: u32, phys_start: u32) -> Self {
+        Self::from(virt_start, virt_end, phys_start, 0)
     }
 
     pub fn from_range(virt: Range<u32>, phys: Range<u32>) -> Self {
@@ -195,6 +196,20 @@ impl Entry {
         }
     }
 
+    /// Wrapper for `range` function to get range values as `usize`.
+    pub fn range_usize(&self) -> (Option<Range<usize>>, EntryType) {
+        let (range, kind) = self.range();
+        match range {
+            Some(range) => {
+                let start: usize = (range.start as usize).try_into().unwrap();
+                let end: usize = (range.end as usize).try_into().unwrap();
+                let result = Range { start, end };
+                (Some(result), kind)
+            }
+            _ => (None, kind)
+        }
+    }
+
     /// Validate this table entry.
     pub fn validate(&self) -> Result<(Range<u32>, Option<Range<u32>>, EntryType)> {
         let virt = self.virt();
@@ -238,6 +253,8 @@ pub enum EntryType {
 }
 
 pub struct Table {
+    /// Virtual address of `dmadata` file.
+    pub address: u32,
     /// `dmadata` entries.
     pub entries: Vec<Entry>,
 }
@@ -252,8 +269,9 @@ impl fmt::Display for Table {
 }
 
 impl Table {
-    pub fn from(entries: Vec<Entry>) -> Self {
+    pub fn from(address: u32, entries: Vec<Entry>) -> Self {
         Self {
+            address,
             entries,
         }
     }
@@ -274,21 +292,21 @@ impl Table {
 
     /// Read `Table` from reader at given offset. Assumes the reader is already positioned at this offset.
     pub fn read_at<T: Read>(mut reader: &mut T, begin: u32) -> Result<Table> {
-        let mut current: usize = (begin as usize).try_into().unwrap();
+        let mut current = begin;
+        let mut dmadata = None;
         let mut entries = Vec::new();
-        let mut end = None;
         loop {
             let entry = Entry::read(&mut reader)?;
 
             // Table should include an entry about itself, it should be uncompressed.
-            if end == None && entry.virt_start() == begin {
-                end = Some(entry.virt_end() as usize);
+            if dmadata == None && entry.virt_start() == begin {
+                dmadata = Some(entry.virt());
             }
 
             // Check if the end has been reached.
-            match end {
-                Some(end) => {
-                    if current >= end {
+            match &dmadata {
+                Some(dmadata) => {
+                    if current >= dmadata.end {
                         break;
                     }
                 }
@@ -296,9 +314,9 @@ impl Table {
             }
 
             entries.push(entry);
-            current += Entry::SIZE;
+            current += Entry::SIZE as u32;
         }
-        let table = Table::from(entries);
+        let table = Table::from(dmadata.unwrap().start, entries);
         Ok(table)
     }
 
@@ -307,6 +325,11 @@ impl Table {
         let offset = stream.seek(SeekFrom::Current(0))?;
         let begin = (offset as u32).try_into().unwrap();
         Self::read_at(&mut stream, begin)
+    }
+
+    /// Get size of `Table` in bytes.
+    pub fn size(&self) -> usize {
+        self.entries.len() * Entry::SIZE
     }
 
     /// Find the offset of the DMA table, relative to start of stream.

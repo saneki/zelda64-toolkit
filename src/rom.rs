@@ -1,9 +1,9 @@
 use n64rom::rom::Rom as N64Rom;
-use std::convert::TryInto;
 use std::io::{self, Cursor, Read, Seek, SeekFrom, Write};
+use std::ops::Range;
 use thiserror::Error;
 
-use crate::dma::{self, Table};
+use crate::dma::{self, Entry, Table};
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -21,11 +21,11 @@ type Result<T> = ::std::result::Result<T, Error>;
 pub struct Rom {
     /// Underlying N64 rom.
     pub rom: N64Rom,
-    pub table: Option<(Table, usize)>,
+    pub table: Option<Table>,
 }
 
 impl Rom {
-    pub fn from(rom: N64Rom, table: Option<(Table, usize)>) -> Self {
+    pub fn from(rom: N64Rom, table: Option<Table>) -> Self {
         Self {
             rom,
             table,
@@ -45,21 +45,17 @@ impl Rom {
         let mut cursor = Cursor::new(n64rom.full());
         let result = Table::find(&mut cursor)?;
         let rom = match result {
-            Some((table, offset)) => {
-                Rom {
-                    rom: n64rom,
-                    table: Some((table, offset)),
-                }
-            }
-            None => {
-                Rom {
-                    rom: n64rom,
-                    table: None,
-                }
-            }
+            Some((table, _)) => Rom::from(n64rom, Some(table)),
+            None => Rom::from(n64rom, None),
         };
 
         Ok(rom)
+    }
+
+    pub fn slice(&self, entry: &Entry) -> &[u8] {
+        let (range, _) = entry.range_usize();
+        let range = range.unwrap(); // TODO: Return Result type instead of unwrap range.
+        &self.rom.full()[range]
     }
 
     pub fn update(&mut self) -> Result<()> {
@@ -71,11 +67,11 @@ impl Rom {
 
     fn update_table_data(&mut self) -> Result<()> {
         match &self.table {
-            Some((table, offset)) => {
-                let mut cursor = Cursor::new(Vec::new());
-                let offset: u64 = (*offset).try_into().unwrap();
-                table.write(&mut cursor)?;
-                self.patch(offset, cursor.get_ref())?;
+            Some(table) => {
+                let offset = table.address as usize;
+                let range = Range { start: offset, end: offset + table.size() };
+                let mut slice = &mut self.rom.full_mut()[range];
+                table.write(&mut slice)?;
                 Ok(())
             }
             None => Ok(()),

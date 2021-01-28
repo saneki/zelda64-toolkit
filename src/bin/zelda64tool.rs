@@ -3,7 +3,7 @@ use n64rom::rom::HEAD_SIZE;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
-use zelda64::decompress::Decompressor;
+use zelda64::decompress;
 use zelda64::rom::{Error, Rom};
 
 fn load_rom(path: &str) -> Result<(Rom, File), Error> {
@@ -42,9 +42,7 @@ fn main() -> Result<(), Error> {
         ("decompress", Some(matches)) => {
             let in_path = matches.value_of("input").unwrap();
             let (rom, _) = load_rom(&in_path)?;
-
-            let mut decompressor = Decompressor::from(&rom);
-            let mut dec_rom = decompressor.decompress()?;
+            let mut dec_rom = decompress::decompress_rom(&rom)?;
 
             let out_path = matches.value_of("output").unwrap();
             let mut out_file = File::create(out_path)?;
@@ -57,9 +55,9 @@ fn main() -> Result<(), Error> {
             let (rom, _) = load_rom(&path)?;
 
             match &rom.table {
-                Some((table, offset)) => {
+                Some(table) => {
                     // Factor in size of N64 rom header
-                    let offset = offset + HEAD_SIZE;
+                    let offset = (table.address as usize) + HEAD_SIZE;
 
                     println!("Table: 0x{:08X}", offset);
                     println!("{}", table);
