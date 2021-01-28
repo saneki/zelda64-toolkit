@@ -1,0 +1,2 @@
+[workspace]
+members = ["n64rom-rs", "zelda64-rs"]
