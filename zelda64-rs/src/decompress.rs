@@ -40,14 +40,14 @@ impl Options {
     }
 }
 
-/// Decompress `dmadata` filesystem in ROM with default options.
+/// Decompress `dmadata` filesystem in ROM with default `Options`.
 pub fn decompress(rom: &Rom) -> Result<Rom, Error> {
     let options = Options::default();
-    decompress_rom(rom, &options)
+    decompress_with_options(rom, &options)
 }
 
-/// Decompress `dmadata` filesystem in ROM.
-pub fn decompress_rom(rom: &Rom, options: &Options) -> Result<Rom, Error> {
+/// Decompress `dmadata` filesystem in ROM with given `Options`.
+pub fn decompress_with_options(rom: &Rom, options: &Options) -> Result<Rom, Error> {
     let n64rom = &rom.rom;
     let mut data = vec![0; ROM_CAPACITY];
     let table = rom.table.as_ref().unwrap();
