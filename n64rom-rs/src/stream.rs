@@ -1,4 +1,4 @@
-use std::io::{Read, Result, Write};
+use std::io::{self, Read, Result, Write};
 
 use crate::convert;
 use crate::rom::Endianness;
@@ -128,6 +128,20 @@ impl<'w, T: Write> Writer<'w, T> {
 
     fn remaining(&self) -> usize {
         self.buffer.len() - self.length
+    }
+
+    /// Write all data as specific endianness. Will use underlying writer directly if writing as `Endianness::Big`.
+    pub fn write_all(writer: &'w mut T, data: &[u8], order: Endianness) -> io::Result<usize> {
+        if order == Endianness::Big {
+            let written = writer.write(data)?;
+            writer.flush()?;
+            Ok(written)
+        } else {
+            let mut writer = Writer::from(writer, order);
+            let written = writer.write(data)?;
+            writer.flush()?;
+            Ok(written)
+        }
     }
 }
 

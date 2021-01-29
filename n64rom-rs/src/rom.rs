@@ -1,5 +1,5 @@
 use std::fmt;
-use std::io::{self, Read, Write};
+use std::io::{self, Cursor, Read, Write};
 use thiserror::Error;
 
 use crate::header::Header;
@@ -175,26 +175,26 @@ impl Rom {
         Ok(rom)
     }
 
-    pub fn write<'a, T: Write>(&self, writer: &'a mut T, endianness: Option<&Endianness>) -> io::Result<usize> {
-        let order = match endianness {
-            // Use endianness if specified
-            Some(e) => e,
-            // Otherwise default to original order
-            _ => &self.order,
-        };
-
-        // Wrap in writer that respects chosen byte order
-        let mut writer = Writer::from(writer, *order);
-
-        // Write header, IPL3 and data
-        let mut written = self.header.write(&mut writer)?;
-        written += self.ipl3.write(&mut writer)?;
-        written += writer.write(&self.image[HEAD_SIZE..])?;
-        writer.flush()?;
-
-        // Todo: Compare total amount written to expected length
-
+    /// Flush `Header` and `IPL3` to underlying buffer.
+    pub fn flush(&mut self) -> io::Result<usize> {
+        let slice = &mut self.image[..HEAD_SIZE];
+        let mut cursor = Cursor::new(slice);
+        let mut written = self.header.write(&mut cursor)?;
+        written += self.ipl3.write(&mut cursor)?;
         Ok(written)
+    }
+
+    /// Write ROM data to writer.
+    pub fn write_raw<T: Write>(&self, writer: &mut T, endianness: Option<Endianness>) -> io::Result<usize> {
+        let order = endianness.unwrap_or(self.order);
+        // Todo: Compare total amount written to expected length
+        Writer::write_all(writer, &self.image, order)
+    }
+
+    /// Write ROM data to writer after flushing `Header` and `IPL3` to underlying buffer.
+    pub fn write<T: Write>(&mut self, writer: &mut T, endianness: Option<Endianness>) -> io::Result<usize> {
+        self.flush()?;
+        self.write_raw(writer, endianness)
     }
 
     pub fn len(&self) -> usize {

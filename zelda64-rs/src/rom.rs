@@ -78,7 +78,7 @@ impl Rom {
         }
     }
 
-    pub fn write<T: Write>(&self, mut writer: &mut T) -> io::Result<usize> {
+    pub fn write<T: Write>(&mut self, mut writer: &mut T) -> io::Result<usize> {
         self.rom.write(&mut writer, None)
     }
 
