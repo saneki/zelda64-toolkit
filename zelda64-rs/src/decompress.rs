@@ -6,7 +6,7 @@ use yaz0::inflate::Yaz0Archive;
 
 use crate::dma::{self, Entry, EntryType, Table};
 use crate::rom::{self, Rom};
-use crate::util::ConvertRangeExt;
+use crate::util::{self, ConvertRangeExt};
 
 /// Decompressed rom capacity is 64 MiB.
 const ROM_CAPACITY: usize = 1024 * 1024 * 64;
@@ -58,17 +58,18 @@ pub fn decompress_rom(rom: &Rom, options: &Options) -> Result<Rom, Error> {
         let (virt, range, kind) = entry.validate()?;
         match range {
             Some(_) => {
-                // Get decompressed length and create new Entry.
                 let input = rom.slice(&entry);
                 // Either use virtual addresses for output slice, or begin where last slice ended.
-                let mut output = if options.matching {
-                    data.get_mut(virt.to_usize()).ok_or(Error::OutOfRangeError(virt.clone()))?
+                let outrange = if options.matching {
+                    virt.clone()
                 } else {
-                    let outrange = Range { start: offset, end: offset + virt.len() };
-                    offset += virt.len();
-                    &mut data[outrange]
+                    let length = util::align16(virt.len() as u32);
+                    let result = Range { start: offset, end: offset + length };
+                    offset += length;
+                    result
                 };
-                let entry = Entry::from_uncompressed(virt.start, virt.end, virt.start);
+                let mut output = data.get_mut(outrange.to_usize()).ok_or(Error::OutOfRangeError(outrange.clone()))?;
+                let entry = Entry::from_uncompressed(virt.start, virt.end, outrange.start);
                 match kind {
                     EntryType::Compressed => {
                         // Decompress Yaz0-compressed file data.
