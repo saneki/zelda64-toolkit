@@ -17,7 +17,7 @@ pub enum Error {
     DmaError(#[from] dma::Error),
     #[error("{0}")]
     RomError(#[from] rom::Error),
-    #[error("Virtual address out-of-range for output slice: (0x{:8X}, 0x{:8X})", .0.start, .0.end)]
+    #[error("Address out-of-range for output slice: (0x{:8X}, 0x{:8X})", .0.start, .0.end)]
     OutOfRangeError(Range<u32>),
     #[error("Yaz0 decompression error: {0}")]
     Yaz0Error(#[from] ::yaz0::Error),
