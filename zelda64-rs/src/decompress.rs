@@ -1,13 +1,25 @@
 use n64rom::rom::Rom as N64Rom;
 use std::io::Cursor;
+use std::ops::Range;
+use thiserror::Error;
 use yaz0::inflate::Yaz0Archive;
 
-use crate::dma::{Entry, EntryType, Table};
-use crate::rom::{Error, Rom};
+use crate::dma::{self, Entry, EntryType, Table};
+use crate::rom::{self, Rom};
 use crate::util::ConvertRangeExt;
 
 /// Decompressed rom capacity is 64 MiB.
 const ROM_CAPACITY: usize = 1024 * 1024 * 64;
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("{0}")]
+    DmaError(#[from] dma::Error),
+    #[error("{0}")]
+    RomError(#[from] rom::Error),
+    #[error("Virtual address out-of-range for output slice: (0x{:8X}, 0x{:8X})", .0.start, .0.end)]
+    OutOfRangeError(Range<u32>),
+}
 
 /// Decompress `dmadata` filesystem in ROM.
 pub fn decompress_rom(rom: &Rom) -> Result<Rom, Error> {
@@ -22,7 +34,7 @@ pub fn decompress_rom(rom: &Rom) -> Result<Rom, Error> {
             Some(_) => {
                 // Get decompressed length and create new Entry.
                 let input = rom.slice(&entry);
-                let mut output = &mut data[virt.to_usize()];
+                let mut output = data.get_mut(virt.to_usize()).ok_or(Error::OutOfRangeError(virt.clone()))?;
                 let entry = Entry::from_uncompressed(virt.start, virt.end, virt.start);
                 match kind {
                     EntryType::Compressed => {

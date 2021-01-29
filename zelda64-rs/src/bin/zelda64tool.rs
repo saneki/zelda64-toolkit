@@ -1,19 +1,20 @@
+use anyhow::Result;
 use clap::{App, Arg};
 use n64rom::rom::HEAD_SIZE;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use zelda64::decompress;
-use zelda64::rom::{Error, Rom};
+use zelda64::rom::Rom;
 
-fn load_rom(path: &str) -> Result<(Rom, File), Error> {
+fn load_rom(path: &str) -> Result<(Rom, File)> {
     let in_path = Path::new(path);
     let mut file = File::open(in_path)?;
     let rom = Rom::read(&mut file)?;
     Ok((rom, file))
 }
 
-fn main() -> Result<(), Error> {
+fn main() -> Result<()> {
     let matches = App::new("zelda64tool")
         .author("saneki <s@neki.me>")
         .version("0.0.1")
