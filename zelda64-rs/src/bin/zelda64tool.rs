@@ -23,6 +23,11 @@ fn main() -> Result<()> {
             App::new("decompress")
                 .visible_alias("d")
                 .about("Decompress a Zelda64 rom file")
+                .arg(Arg::with_name("squeeze")
+                    .short("s")
+                    .long("squeeze")
+                    .takes_value(false)
+                    .help("Do not match decompressed addresses with virtual addresses."))
                 .arg(Arg::with_name("input")
                     .required(true)
                     .help("Input rom file"))
@@ -43,7 +48,9 @@ fn main() -> Result<()> {
         ("decompress", Some(matches)) => {
             let in_path = matches.value_of("input").unwrap();
             let (rom, _) = load_rom(&in_path)?;
-            let mut dec_rom = decompress::decompress_rom(&rom)?;
+            let squeeze = matches.is_present("squeeze");
+            let options = decompress::Options::from(!squeeze);
+            let mut dec_rom = decompress::decompress_rom(&rom, &options)?;
 
             let out_path = matches.value_of("output").unwrap();
             let mut out_file = File::create(out_path)?;

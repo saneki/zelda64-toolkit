@@ -23,12 +23,36 @@ pub enum Error {
     Yaz0Error(#[from] ::yaz0::Error),
 }
 
+/// Decompression options.
+pub struct Options {
+    /// Whether or not to match virtual addresses.
+    matching: bool,
+}
+
+impl Options {
+    /// Get the default set of decompression `Options`.
+    pub fn default() -> Self {
+        Self::from(true)
+    }
+
+    pub fn from(matching: bool) -> Self {
+        Self { matching }
+    }
+}
+
+/// Decompress `dmadata` filesystem in ROM with default options.
+pub fn decompress(rom: &Rom) -> Result<Rom, Error> {
+    let options = Options::default();
+    decompress_rom(rom, &options)
+}
+
 /// Decompress `dmadata` filesystem in ROM.
-pub fn decompress_rom(rom: &Rom) -> Result<Rom, Error> {
+pub fn decompress_rom(rom: &Rom, options: &Options) -> Result<Rom, Error> {
     let n64rom = &rom.rom;
     let mut data = vec![0; ROM_CAPACITY];
     let table = rom.table.as_ref().unwrap();
     let mut entries = Vec::with_capacity(table.entries.len());
+    let mut offset = 0;
 
     for entry in &table.entries {
         let (virt, range, kind) = entry.validate()?;
@@ -36,7 +60,14 @@ pub fn decompress_rom(rom: &Rom) -> Result<Rom, Error> {
             Some(_) => {
                 // Get decompressed length and create new Entry.
                 let input = rom.slice(&entry);
-                let mut output = data.get_mut(virt.to_usize()).ok_or(Error::OutOfRangeError(virt.clone()))?;
+                // Either use virtual addresses for output slice, or begin where last slice ended.
+                let mut output = if options.matching {
+                    data.get_mut(virt.to_usize()).ok_or(Error::OutOfRangeError(virt.clone()))?
+                } else {
+                    let outrange = Range { start: offset, end: offset + virt.len() };
+                    offset += virt.len();
+                    &mut data[outrange]
+                };
                 let entry = Entry::from_uncompressed(virt.start, virt.end, virt.start);
                 match kind {
                     EntryType::Compressed => {
