@@ -68,8 +68,9 @@ pub fn decompress_rom(rom: &Rom, options: &Options) -> Result<Rom, Error> {
                     offset += length;
                     result
                 };
-                let mut output = data.get_mut(outrange.to_usize()).ok_or(Error::OutOfRangeError(outrange.clone()))?;
-                let entry = Entry::from_uncompressed(virt.start, virt.end, outrange.start);
+                // Append new Entry and get mutable slice for output.
+                entries.push(Entry::from_uncompressed(virt.start, virt.end, outrange.start));
+                let mut output = data.get_mut(outrange.to_usize()).ok_or(Error::OutOfRangeError(outrange))?;
                 match kind {
                     EntryType::Compressed => {
                         // Decompress Yaz0-compressed file data.
@@ -83,7 +84,6 @@ pub fn decompress_rom(rom: &Rom, options: &Options) -> Result<Rom, Error> {
                     }
                     _ => unreachable!()
                 }
-                entries.push(entry);
             }
             _ => entries.push(entry.clone())
         }
