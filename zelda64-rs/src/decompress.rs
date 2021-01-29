@@ -19,6 +19,8 @@ pub enum Error {
     RomError(#[from] rom::Error),
     #[error("Virtual address out-of-range for output slice: (0x{:8X}, 0x{:8X})", .0.start, .0.end)]
     OutOfRangeError(Range<u32>),
+    #[error("Yaz0 decompression error: {0}")]
+    Yaz0Error(#[from] ::yaz0::Error),
 }
 
 /// Decompress `dmadata` filesystem in ROM.
@@ -40,8 +42,8 @@ pub fn decompress_rom(rom: &Rom) -> Result<Rom, Error> {
                     EntryType::Compressed => {
                         // Decompress Yaz0-compressed file data.
                         let mut cursor = Cursor::new(input);
-                        let mut archive = Yaz0Archive::new(&mut cursor).unwrap();
-                        archive.decompress_into(&mut output).unwrap();
+                        let mut archive = Yaz0Archive::new(&mut cursor)?;
+                        archive.decompress_into(&mut output)?;
                     }
                     EntryType::Decompressed => {
                         // Direct copy as file data is not compressed.
