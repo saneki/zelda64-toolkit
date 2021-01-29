@@ -6,6 +6,7 @@ use std::process;
 use thiserror::Error;
 
 use n64rom::convert::{self, ConvertStatus};
+use n64rom::header::Header;
 use n64rom::rom::{Endianness, Rom};
 use n64rom::stream::Writer;
 use n64rom::util::{FileSize, MEBIBYTE};
@@ -145,7 +146,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
                 file.seek(SeekFrom::Start(0))?;
 
                 // Use a writer that respects the original byte order
-                let mut writer = Writer::from(&mut file, rom.order());
+                let mut writer = Writer::with_buffer_size(&mut file, rom.order(), Header::SIZE);
                 rom.header.write(&mut writer)?;
                 writer.flush()?;
 
