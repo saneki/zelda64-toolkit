@@ -73,6 +73,7 @@ impl fmt::Display for Rom {
 }
 
 impl Rom {
+    /// Calculate CRC values from `Rom` data and compare against CRC values in the `Header`.
     pub fn check_crc(&self) -> (bool, (u32, u32)) {
         let crcs = self.header.crcs();
         let calc = self.ipl3.compute_crcs(&self.image[HEAD_SIZE..], &[]);
@@ -95,17 +96,17 @@ impl Rom {
         }
     }
 
-    /// Get slice of Rom image data, not including header or IPL3.
+    /// Get slice of `Rom` image data, not including header or `IPL3`.
     pub fn data(&self) -> &[u8] {
         &self.image[HEAD_SIZE..]
     }
 
-    /// Get slice of Rom image data as mutable, not including header or IPL3.
+    /// Get slice of `Rom` image data as mutable, not including header or `IPL3`.
     pub fn data_mut(&mut self) -> &mut [u8] {
         &mut self.image[HEAD_SIZE..]
     }
 
-    /// Construct from a raw image without copying. Requires image data to be in big-endian format.
+    /// Create `Rom` from a raw image without copying. Requires image data to be in big-endian format.
     pub fn from_image(image: Vec<u8>) -> Result<Self, Error> {
         let mut head = &image[..HEAD_SIZE];
         // Read header & infer endianness.
@@ -118,6 +119,7 @@ impl Rom {
         }
     }
 
+    /// Create `Rom` from fields.
     pub fn from(header: Header, ipl3: IPL3, image: Vec<u8>, order: Endianness) -> Self {
         Self {
             header,
@@ -127,26 +129,27 @@ impl Rom {
         }
     }
 
-    /// Get slice of full Rom image data.
+    /// Get slice of full `Rom` image data.
     pub fn full(&self) -> &[u8] {
         &self.image[..]
     }
 
-    /// Get slice of full Rom image data as mutable.
+    /// Get slice of full `Rom` image data as mutable.
     pub fn full_mut(&mut self) -> &mut [u8] {
         &mut self.image[..]
     }
 
+    /// Get the `Endianness` of the parsed `Rom` data.
     pub fn order(&self) -> Endianness {
         self.order
     }
 
-    /// Read Rom with all data.
+    /// Read `Rom` with all data.
     pub fn read<T: Read>(mut reader: &mut T) -> Result<Self, crate::header::Error> {
         Self::read_with_body(&mut reader, true)
     }
 
-    /// Read Rom.
+    /// Read `Rom`.
     pub fn read_with_body<T: Read>(mut reader: &mut T, read_body: bool) -> Result<Self, crate::header::Error> {
         // Read header & infer endianness
         let (header, order) = Header::read_ordered(&mut reader)?;
@@ -184,23 +187,25 @@ impl Rom {
         Ok(written)
     }
 
-    /// Write ROM data to writer.
+    /// Write `Rom` data to writer.
     pub fn write_raw<T: Write>(&self, writer: &mut T, endianness: Option<Endianness>) -> io::Result<usize> {
         let order = endianness.unwrap_or(self.order);
         // Todo: Compare total amount written to expected length
         Writer::write_all(writer, &self.image, order)
     }
 
-    /// Write ROM data to writer after flushing `Header` and `IPL3` to underlying buffer.
+    /// Write `Rom` data to writer after flushing `Header` and `IPL3` to underlying buffer.
     pub fn write<T: Write>(&mut self, writer: &mut T, endianness: Option<Endianness>) -> io::Result<usize> {
         self.flush()?;
         self.write_raw(writer, endianness)
     }
 
+    /// Get full length of `Rom` data.
     pub fn len(&self) -> usize {
         self.image.len()
     }
 
+    /// Whether or not the `Rom` data is empty.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
