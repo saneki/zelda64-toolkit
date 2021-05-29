@@ -89,7 +89,7 @@ impl Magic {
     }
 
     /// Convert to a `u32` value.
-    pub fn to_u32(&self) -> u32 {
+    pub fn to_u32(self) -> u32 {
         BigEndian::read_u32(self.as_ref())
     }
 }
