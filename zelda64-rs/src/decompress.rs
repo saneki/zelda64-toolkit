@@ -23,31 +23,17 @@ pub enum Error {
     Yaz0Error(#[from] ::yaz0::Error),
 }
 
-/// Decompression options.
-pub struct Options {
-    /// Whether or not to match virtual addresses.
-    matching: bool,
-}
-
-impl Options {
-    /// Get the default set of decompression `Options`.
-    pub fn default() -> Self {
-        Self::from(true)
-    }
-
-    pub fn from(matching: bool) -> Self {
-        Self { matching }
-    }
-}
-
 /// Decompress `dmadata` filesystem in ROM with default `Options`.
-pub fn decompress(rom: &Rom) -> Result<Rom, Error> {
-    let options = Options::default();
-    decompress_with_options(rom, &options)
+pub fn decompress(rom: &Rom, matching: bool) -> Result<Rom, Error> {
+    if matching {
+        decompress_with_matching::<true>(rom)
+    } else {
+        decompress_with_matching::<false>(rom)
+    }
 }
 
 /// Decompress `dmadata` filesystem in ROM with given `Options`.
-pub fn decompress_with_options(rom: &Rom, options: &Options) -> Result<Rom, Error> {
+pub fn decompress_with_matching<const MATCHING: bool>(rom: &Rom) -> Result<Rom, Error> {
     let n64rom = &rom.rom;
     let mut data = vec![0; ROM_CAPACITY];
     let table = rom.table.as_ref().unwrap();
@@ -60,7 +46,7 @@ pub fn decompress_with_options(rom: &Rom, options: &Options) -> Result<Rom, Erro
             Some(_) => {
                 let input = rom.slice(&entry);
                 // Either use virtual addresses for output slice, or begin where last slice ended.
-                let outrange = if options.matching {
+                let outrange = if MATCHING {
                     virt.clone()
                 } else {
                     let length = util::align16(virt.len() as u32);
