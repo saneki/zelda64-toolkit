@@ -172,19 +172,23 @@ pub fn convert_rom_file_inplace(file: &mut File, target: Endianness) -> Result<(
         return Ok((ConvertStatus::AlreadyConverted, 0))
     }
 
-    // Determine full length and check alignment.
+    // Determine filesize in attempt to prevent buffer from re-allocating.
     let filesize = file.metadata()?.len();
     let size = validate_rom_file_size(filesize)?;
 
+    // Read file into memory to perform conversion.
     let mut contents = Vec::with_capacity(size);
-    let read_amount = file.read_to_end(&mut contents)?;
+    let mut handle = file.take(filesize);
+    let read_amount = handle.read_to_end(&mut contents)?;
 
     if size != read_amount {
         return Err(Error::FileReadError(size, read_amount));
     }
 
+    // Perform endianness conversion.
     let result = convert(&mut contents, order, target)?;
 
+    // Write resulting contents.
     file.seek(SeekFrom::Start(0))?;
     file.write_all(&contents)?;
 
@@ -208,30 +212,34 @@ pub fn convert_rom(rom: &mut Rom, target: Endianness) -> Result<ConvertStatus, E
 
 /// Convenience function to convert a given rom `File` to the specified `Endianness`.
 pub fn convert_rom_file(in_file: &mut File, out_file: &mut File, target: Endianness) -> Result<(ConvertStatus, usize), Error> {
-    // Read first 4 bytes (magic value) to infer endianness.
     in_file.seek(SeekFrom::Start(0))?;
+
+    // Infer endianness from file.
     let order = Magic::infer_byte_order_from_file(in_file)?;
+    in_file.seek(SeekFrom::Start(0))?;
+
+    // TODO: Warn about converting to same endianness (this will result in copying the file).
 
     // Determine filesize in attempt to prevent buffer from re-allocating.
-    let filesize = std::cmp::min(in_file.metadata()?.len(), crate::rom::MAX_SIZE as u64);
-    let mut contents = Vec::with_capacity(filesize as usize);
+    let filesize = in_file.metadata()?.len();
+    let size = validate_rom_file_size(filesize)?;
 
-    // Read file into memory and perform conversion.
-    in_file.seek(SeekFrom::Start(0))?;
-    let mut handle = in_file.take(crate::rom::MAX_SIZE as u64);
+    // Read file into memory to perform conversion.
+    let mut contents = Vec::with_capacity(size);
+    let mut handle = in_file.take(filesize);
     let read_amount = handle.read_to_end(&mut contents)?;
+
+    if size != read_amount {
+        return Err(Error::FileReadError(size, read_amount))
+    }
 
     // Perform endianness conversion.
     let result = convert(&mut contents, order, target)?;
 
-    // Write resulting contents to same file.
-    let write_amount = out_file.write(&contents)?;
+    // Write resulting contents.
+    out_file.write_all(&contents)?;
 
-    if read_amount == write_amount {
-        Ok((result, read_amount))
-    } else {
-        Err(Error::FileWriteError(read_amount, write_amount))
-    }
+    Ok((result, size))
 }
 
 /// Convenience function to convert a rom file at a given `Path` to the specified `Endianness`.
