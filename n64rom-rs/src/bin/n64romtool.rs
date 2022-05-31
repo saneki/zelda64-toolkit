@@ -1,4 +1,4 @@
-use clap::{App, Arg, ArgMatches};
+use clap::{Arg, ArgMatches, Command};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Seek, SeekFrom, Write};
 use std::path::Path;
@@ -27,43 +27,43 @@ enum Error {
 }
 
 fn main() -> Result<(), Error> {
-    let matches = App::new("n64romtool")
+    let matches = Command::new("n64romtool")
         .author("saneki <s@neki.me>")
         .version("0.1.0")
         .about("Displays information about N64 ROM files")
         .subcommand(
-            App::new("show")
+            Command::new("show")
                 .about("Show details about a rom file")
-                .arg(Arg::with_name("file")
+                .arg(Arg::new("file")
                     .required(true)
                     .help("Rom file"))
         )
         .subcommand(
-            App::new("check")
+            Command::new("check")
                 .about("Verify whether or not the CRC values of a rom file are correct")
-                .arg(Arg::with_name("file")
+                .arg(Arg::new("file")
                     .required(true)
                     .help("Rom file"))
         )
         .subcommand(
-            App::new("convert")
+            Command::new("convert")
                 .about("Convert a rom file to a different byte order")
-                .arg(Arg::with_name("order")
+                .arg(Arg::new("order")
                     .takes_value(true)
                     .possible_values(&["big", "little", "mixed"])
                     .required(true)
                     .help("Byte order to convert to"))
-                .arg(Arg::with_name("input")
+                .arg(Arg::new("input")
                     .required(true)
                     .help("Input rom file"))
-                .arg(Arg::with_name("output")
+                .arg(Arg::new("output")
                     .required(true)
                     .help("Output rom file"))
         )
         .subcommand(
-            App::new("correct")
+            Command::new("correct")
                 .about("Correct the CRC values of a rom file")
-                .arg(Arg::with_name("file")
+                .arg(Arg::new("file")
                     .required(true)
                     .help("Rom file"))
         )
@@ -104,7 +104,7 @@ fn load_rom_rw(path: &str) -> Result<(Rom, File), Error> {
 fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
 
     match matches.subcommand() {
-        ("check", Some(matches)) => {
+        Some(("check", matches)) => {
             let path = matches.value_of("file").unwrap();
             let (rom, _) = load_rom(&path, true)?;
 
@@ -116,7 +116,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
                 Err(Error::CRCError(crcs.0, crcs.1))
             }
         }
-        ("convert", Some(matches)) => {
+        Some(("convert", matches)) => {
             // Get variables from arguments.
             let input = matches.value_of("input").unwrap();
             let output = matches.value_of("output").unwrap();
@@ -135,7 +135,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
             }
             Ok(())
         }
-        ("correct", Some(matches)) => {
+        Some(("correct", matches)) => {
             let path = matches.value_of("file").unwrap();
             let (mut rom, mut file) = load_rom_rw(&path)?;
 
@@ -154,7 +154,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
                 Ok(())
             }
         }
-        ("show", Some(matches)) => {
+        Some(("show", matches)) => {
             // Read rom with only head (header & IPL3)
             let path = matches.value_of("file").unwrap();
             let (rom, file) = load_rom(&path, false)?;
@@ -178,7 +178,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
 
             Ok(())
         }
-        ("", None) => {
+        None => {
             println!("No subcommand was used");
             Ok(())
         }

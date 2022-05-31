@@ -1,5 +1,5 @@
 use anyhow::Result;
-use clap::{App, Arg};
+use clap::{Arg, Command};
 use n64rom::rom::HEAD_SIZE;
 use std::fs::File;
 use std::io::Write;
@@ -15,37 +15,37 @@ fn load_rom(path: &str) -> Result<(Rom, File)> {
 }
 
 fn main() -> Result<()> {
-    let matches = App::new("zelda64tool")
+    let matches = Command::new("zelda64tool")
         .author("saneki <s@neki.me>")
         .version("0.0.1")
         .about("Displays information about Zelda64 ROM files")
         .subcommand(
-            App::new("decompress")
+            Command::new("decompress")
                 .visible_alias("d")
                 .about("Decompress a Zelda64 rom file")
-                .arg(Arg::with_name("squeeze")
-                    .short("s")
+                .arg(Arg::new("squeeze")
+                    .short('s')
                     .long("squeeze")
                     .takes_value(false)
                     .help("Do not match decompressed addresses with virtual addresses."))
-                .arg(Arg::with_name("input")
+                .arg(Arg::new("input")
                     .required(true)
                     .help("Input rom file"))
-                .arg(Arg::with_name("output")
+                .arg(Arg::new("output")
                     .required(true)
                     .help("Output rom file"))
         )
         .subcommand(
-            App::new("show")
+            Command::new("show")
                 .about("Show details about a rom file")
-                .arg(Arg::with_name("file")
+                .arg(Arg::new("file")
                     .required(true)
                     .help("Zelda64 rom file"))
         )
         .get_matches();
 
     match matches.subcommand() {
-        ("decompress", Some(matches)) => {
+        Some(("decompress", matches)) => {
             let in_path = matches.value_of("input").unwrap();
             let (rom, _) = load_rom(&in_path)?;
             let squeeze = matches.is_present("squeeze");
@@ -57,7 +57,7 @@ fn main() -> Result<()> {
             out_file.flush()?;
             println!("Wrote {:08X} bytes!", written);
         }
-        ("show", Some(matches)) => {
+        Some(("show", matches)) => {
             let path = matches.value_of("file").unwrap();
             let (rom, _) = load_rom(&path)?;
 
@@ -72,7 +72,7 @@ fn main() -> Result<()> {
                 None => println!("No table?")
             }
         }
-        ("", None) => {
+        None => {
             println!("No subcommand was used");
         }
         _ => unreachable!(),
