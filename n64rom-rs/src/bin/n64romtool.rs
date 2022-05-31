@@ -48,6 +48,11 @@ fn main() -> Result<(), Error> {
         .subcommand(
             Command::new("convert")
                 .about("Convert a rom file to a different byte order")
+                .arg(Arg::new("in-place")
+                    .short('i')
+                    .long("in-place")
+                    .takes_value(false)
+                    .help("Modify input ROM file in-place."))
                 .arg(Arg::new("order")
                     .takes_value(true)
                     .possible_values(&["big", "little", "mixed"])
@@ -57,7 +62,7 @@ fn main() -> Result<(), Error> {
                     .required(true)
                     .help("Input rom file"))
                 .arg(Arg::new("output")
-                    .required(true)
+                    .required_unless_present("in-place")
                     .help("Output rom file"))
         )
         .subcommand(
@@ -118,8 +123,8 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         }
         Some(("convert", matches)) => {
             // Get variables from arguments.
+            let in_place = matches.is_present("in-place");
             let input = matches.value_of("input").unwrap();
-            let output = matches.value_of("output").unwrap();
             let order = match matches.value_of("order").unwrap() {
                 "big" => Endianness::Big,
                 "little" => Endianness::Little,
@@ -127,7 +132,14 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
                 _ => unreachable!(),
             };
             // Perform rom convert.
-            let (result, _) = convert::convert_rom_path(&input, &output, order)?;
+            let result = if in_place {
+                let (result, _) = convert::convert_rom_path_inplace(&input, order)?;
+                result
+            } else {
+                let output = matches.value_of("output").unwrap();
+                let (result, _) = convert::convert_rom_path(&input, &output, order)?;
+                result
+            };
             if matches!(result, ConvertStatus::AlreadyConverted) {
                 println!("Rom file is already in {} byte order.", order);
             } else {

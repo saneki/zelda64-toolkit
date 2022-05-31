@@ -84,6 +84,14 @@ impl Magic {
         }
     }
 
+    pub fn infer_byte_order_from_file<T: Read>(file: &mut T) -> Result<Endianness, Error> {
+        // Read first 4 bytes (magic value) to infer endianness.
+        let mut magic_bytes: [u8; 4] = [0; 4];
+        file.read_exact(&mut magic_bytes)?;
+        let order = Self::infer_byte_order(&magic_bytes)?;
+        Ok(order)
+    }
+
     pub fn new() -> Self {
         Self([128, 55, 18, 64])
     }

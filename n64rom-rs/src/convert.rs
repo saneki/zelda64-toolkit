@@ -4,18 +4,40 @@ use std::path::Path;
 use thiserror::Error;
 
 use crate::header::Magic;
-use crate::rom::{Endianness, Rom};
+use crate::rom::{Endianness, Rom, MAX_SIZE};
 
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("Buffer length must be 4-byte aligned to perform conversion, instead found length: {0}")]
     AlignmentError(usize),
+    #[error("File size is too big to be an N64 ROM file: {0}")]
+    FileTooBigError(u64),
+    #[error("Expected {0} bytes but only read {1} bytes")]
+    FileReadError(usize, usize),
     #[error("During conversion, read {0} bytes but only wrote {1} bytes")]
     FileWriteError(usize, usize),
     #[error("{0}")]
     HeaderError(#[from] crate::header::Error),
     #[error("{0}")]
     IOError(#[from] io::Error),
+}
+
+pub fn validate_alignment(value: usize) -> Result<(), Error> {
+    if value % 4 == 0 {
+        Ok(())
+    } else {
+        Err(Error::AlignmentError(value))
+    }
+}
+
+/// Helper function to ensure the file size is not too large, and has proper alignment.
+pub fn validate_rom_file_size(filesize: u64) -> Result<usize, Error> {
+    if (MAX_SIZE as u64) < filesize {
+        return Err(Error::FileTooBigError(filesize))
+    }
+    let size = filesize as usize;
+    validate_alignment(size)?;
+    Ok(size)
 }
 
 /// Perform 4-byte swap between Big Endian and Little Endian.
@@ -138,6 +160,46 @@ pub fn convert(buf: &mut [u8], current: Endianness, target: Endianness) -> Resul
     }
 }
 
+/// Convenience function to convert a given rom `File` to the specified `Endianness` in-place.
+pub fn convert_rom_file_inplace(file: &mut File, target: Endianness) -> Result<(ConvertStatus, usize), Error> {
+    file.seek(SeekFrom::Start(0))?;
+
+    // Infer endianness from file.
+    let order = Magic::infer_byte_order_from_file(file)?;
+    file.seek(SeekFrom::Start(0))?;
+
+    if order == target {
+        return Ok((ConvertStatus::AlreadyConverted, 0))
+    }
+
+    // Determine full length and check alignment.
+    let filesize = file.metadata()?.len();
+    let size = validate_rom_file_size(filesize)?;
+
+    let mut contents = Vec::with_capacity(size);
+    let read_amount = file.read_to_end(&mut contents)?;
+
+    if size != read_amount {
+        return Err(Error::FileReadError(size, read_amount));
+    }
+
+    let result = convert(&mut contents, order, target)?;
+
+    file.seek(SeekFrom::Start(0))?;
+    file.write_all(&contents)?;
+
+    Ok((result, size))
+}
+
+/// Convenience function to convert a rom file at a given `Path` to the specified `Endianness` in-place.
+pub fn convert_rom_path_inplace(path: impl AsRef<Path>, target: Endianness) -> Result<(ConvertStatus, usize), Error> {
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)?;
+    convert_rom_file_inplace(&mut file, target)
+}
+
 /// Convert `Rom` data to a target `Endianness`.
 pub fn convert_rom(rom: &mut Rom, target: Endianness) -> Result<ConvertStatus, Error> {
     let order = rom.order();
@@ -148,9 +210,7 @@ pub fn convert_rom(rom: &mut Rom, target: Endianness) -> Result<ConvertStatus, E
 pub fn convert_rom_file(in_file: &mut File, out_file: &mut File, target: Endianness) -> Result<(ConvertStatus, usize), Error> {
     // Read first 4 bytes (magic value) to infer endianness.
     in_file.seek(SeekFrom::Start(0))?;
-    let mut magic_bytes: [u8; 4] = [0; 4];
-    in_file.read_exact(&mut magic_bytes)?;
-    let order = Magic::infer_byte_order(&magic_bytes)?;
+    let order = Magic::infer_byte_order_from_file(in_file)?;
 
     // Determine filesize in attempt to prevent buffer from re-allocating.
     let filesize = std::cmp::min(in_file.metadata()?.len(), crate::rom::MAX_SIZE as u64);
