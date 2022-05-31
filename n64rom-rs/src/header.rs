@@ -150,9 +150,9 @@ pub struct Header {
     /// Unused by IPL and OS.
     release: u32,
     /// First CRC value.
-    crate crc1: u32,
+    pub(crate) crc1: u32,
     /// Second CRC value.
-    crate crc2: u32,
+    pub(crate) crc2: u32,
     _reserved_1: [u8; 8],
     /// Rom name.
     name: [u8; 20],
