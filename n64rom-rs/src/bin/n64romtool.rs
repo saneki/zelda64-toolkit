@@ -7,9 +7,9 @@ use thiserror::Error;
 
 use n64rom::convert::{self, ConvertStatus};
 use n64rom::header::Header;
-use n64rom::rom::{Endianness, Rom};
+use n64rom::rom::{Endianness, FileExt, Rom};
 use n64rom::stream::Writer;
-use n64rom::util::{FileSize, MEBIBYTE};
+use n64rom::util::{self, FileSize, MEBIBYTE};
 
 #[derive(Debug, Error)]
 enum Error {
@@ -53,6 +53,11 @@ fn main() -> Result<(), Error> {
                     .long("in-place")
                     .takes_value(false)
                     .help("Modify input ROM file in-place."))
+                .arg(Arg::new("ext")
+                    .short('e')
+                    .long("ext")
+                    .takes_value(false)
+                    .help("Update the ROM file extension for the corresponding byte order"))
                 .arg(Arg::new("order")
                     .takes_value(true)
                     .possible_values(&["big", "little", "mixed"])
@@ -133,9 +138,16 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
             };
             // Perform rom convert.
             let result = if in_place {
+                // Update ROM file in-place.
+                let use_ext = matches.is_present("ext");
                 let (result, _) = convert::convert_rom_path_inplace(&input, order)?;
+                if use_ext {
+                    let ext = FileExt::from_endianness(order).unwrap();
+                    util::update_file_extension(input, ext.as_str())?;
+                }
                 result
             } else {
+                // Convert to separate output ROM file.
                 let output = matches.value_of("output").unwrap();
                 let (result, _) = convert::convert_rom_path(&input, &output, order)?;
                 result

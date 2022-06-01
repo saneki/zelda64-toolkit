@@ -1,3 +1,7 @@
+use std::fs;
+use std::io;
+use std::path::Path;
+
 pub const KIBIBYTE: u64 = 1024;
 pub const MEBIBYTE: u64 = KIBIBYTE * 1024;
 
@@ -19,4 +23,12 @@ impl FileSize {
             Self::Float(result)
         }
     }
+}
+
+/// Update the file extension of the file at the given path.
+pub fn update_file_extension(from: impl AsRef<Path>, ext: &str) -> io::Result<bool> {
+    let mut to = from.as_ref().to_path_buf();
+    let result = to.set_extension(ext);
+    fs::rename(from, to)?;
+    Ok(result)
 }

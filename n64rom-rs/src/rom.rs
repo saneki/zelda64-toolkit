@@ -31,6 +31,16 @@ pub enum Endianness {
     Mixed,
 }
 
+impl Endianness {
+    pub fn from_file_ext(ext: FileExt) -> Endianness {
+        match ext {
+            FileExt::N64 => Endianness::Little,
+            FileExt::V64 => Endianness::Mixed,
+            FileExt::Z64 => Endianness::Big,
+        }
+    }
+}
+
 impl fmt::Display for Endianness {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -38,6 +48,38 @@ impl fmt::Display for Endianness {
             Self::Little => write!(f, "Little Endian"),
             Self::Mixed => write!(f, "Mixed"),
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FileExt {
+    N64,
+    V64,
+    Z64,
+}
+
+impl FileExt {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::N64 => "n64",
+            Self::V64 => "v64",
+            Self::Z64 => "z64",
+        }
+    }
+
+    pub fn from_endianness(e: Endianness) -> Option<FileExt> {
+        // NOTE: Using Option in anticipation of wordswapped Endianness, which would not have a file extension.
+        match e {
+            Endianness::Big => Some(FileExt::Z64),
+            Endianness::Little => Some(FileExt::N64),
+            Endianness::Mixed => Some(FileExt::V64),
+        }
+    }
+}
+
+impl fmt::Display for FileExt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_str())
     }
 }
 
